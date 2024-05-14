@@ -102,6 +102,23 @@ def relabel_dataset(dataset, labels):
     return labeled_idxs, unlabeled_idxs
 
 
+def relabel_dataset_bypass(dataset):
+    unlabeled_idxs = []
+    for idx in range(len(dataset.imgs)):
+        path, _ = dataset.imgs[idx]
+        filename = os.path.basename(path)
+        if 'nolabel' in filename:
+            dataset.imgs[idx] = path, NO_LABEL
+            unlabeled_idxs.append(idx)
+        else:
+            label_idx = dataset.class_to_idx[filename.split('_')[1]]
+            dataset.imgs[idx] = path, label_idx
+
+    labeled_idxs = sorted(set(range(len(dataset.imgs))) - set(unlabeled_idxs))
+
+    return labeled_idxs, unlabeled_idxs
+
+
 class TwoStreamBatchSampler(Sampler):
     """Iterate two sets of indices
 

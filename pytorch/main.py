@@ -149,17 +149,19 @@ def create_data_loaders(train_transformation,
                         eval_transformation,
                         datadir,
                         args):
-    traindir = os.path.join(datadir, args.train_subdir)
-    evaldir = os.path.join(datadir, args.eval_subdir)
+    traindir = os.path.join('pytorch', datadir, args.train_subdir)
+    evaldir = os.path.join('pytorch', datadir, args.eval_subdir)
 
     assert_exactly_one([args.exclude_unlabeled, args.labeled_batch_size])
 
     dataset = torchvision.datasets.ImageFolder(traindir, train_transformation)
 
-    if args.labels:
+    if args.labels != "bypass":
         with open(args.labels) as f:
             labels = dict(line.split(' ') for line in f.read().splitlines())
         labeled_idxs, unlabeled_idxs = data.relabel_dataset(dataset, labels)
+    elif args.labels == "bypass":
+        labeled_idxs, unlabeled_idxs = data.relabel_dataset_bypass(dataset)
 
     if args.exclude_unlabeled:
         sampler = SubsetRandomSampler(labeled_idxs)
@@ -196,7 +198,7 @@ def update_ema_variables(model, ema_model, alpha, global_step):
 def train(train_loader, model, ema_model, optimizer, epoch, log):
     global global_step
 
-    class_criterion = nn.CrossEntropyLoss(size_average=False, ignore_index=NO_LABEL).cuda()
+    class_criterion = nn.CrossEntropyLoss(reduction='sum', ignore_index=NO_LABEL).cuda()
     if args.consistency_type == 'mse':
         consistency_criterion = losses.softmax_mse_loss
     elif args.consistency_type == 'kl':
@@ -212,6 +214,7 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
     ema_model.train()
 
     end = time.time()
+    # with torch.no_grad():
     for i, ((input, ema_input), target) in enumerate(train_loader):
         # measure data loading time
         meters.update('data_time', time.time() - end)
@@ -220,8 +223,8 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
         meters.update('lr', optimizer.param_groups[0]['lr'])
 
         input_var = torch.autograd.Variable(input)
-        ema_input_var = torch.autograd.Variable(ema_input, volatile=True)
-        target_var = torch.autograd.Variable(target.cuda(async=True))
+        ema_input_var = torch.autograd.Variable(ema_input)
+        target_var = torch.autograd.Variable(target.cuda(non_blocking=True))
 
         minibatch_size = len(target_var)
         labeled_minibatch_size = target_var.data.ne(NO_LABEL).sum()
@@ -252,23 +255,23 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
             res_loss = 0
 
         class_loss = class_criterion(class_logit, target_var) / minibatch_size
-        meters.update('class_loss', class_loss.data[0])
+        meters.update('class_loss', class_loss.item())
 
         ema_class_loss = class_criterion(ema_logit, target_var) / minibatch_size
-        meters.update('ema_class_loss', ema_class_loss.data[0])
+        meters.update('ema_class_loss', ema_class_loss.item())
 
         if args.consistency:
             consistency_weight = get_current_consistency_weight(epoch)
             meters.update('cons_weight', consistency_weight)
             consistency_loss = consistency_weight * consistency_criterion(cons_logit, ema_logit) / minibatch_size
-            meters.update('cons_loss', consistency_loss.data[0])
+            meters.update('cons_loss', consistency_loss.item())
         else:
             consistency_loss = 0
             meters.update('cons_loss', 0)
 
         loss = class_loss + consistency_loss + res_loss
-        assert not (np.isnan(loss.data[0]) or loss.data[0] > 1e5), 'Loss explosion: {}'.format(loss.data[0])
-        meters.update('loss', loss.data[0])
+        assert not (np.isnan(loss.item()) or loss.item() > 1e5), 'Loss explosion: {}'.format(loss.item())
+        meters.update('loss', loss.item())
 
         prec1, prec5 = accuracy(class_logit.data, target_var.data, topk=(1, 5))
         meters.update('top1', prec1[0], labeled_minibatch_size)
@@ -312,7 +315,7 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
 
 
 def validate(eval_loader, model, log, global_step, epoch):
-    class_criterion = nn.CrossEntropyLoss(size_average=False, ignore_index=NO_LABEL).cuda()
+    class_criterion = nn.CrossEntropyLoss(reduction='sum', ignore_index=NO_LABEL).cuda()
     meters = AverageMeterSet()
 
     # switch to evaluate mode
@@ -323,7 +326,7 @@ def validate(eval_loader, model, log, global_step, epoch):
         meters.update('data_time', time.time() - end)
 
         input_var = torch.autograd.Variable(input, volatile=True)
-        target_var = torch.autograd.Variable(target.cuda(async=True), volatile=True)
+        target_var = torch.autograd.Variable(target.cuda(non_blocking=True), volatile=True)
 
         minibatch_size = len(target_var)
         labeled_minibatch_size = target_var.data.ne(NO_LABEL).sum()
@@ -403,7 +406,8 @@ def get_current_consistency_weight(epoch):
 
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
+    # maxk = max(topk)
+    maxk = output.shape[1]
     labeled_minibatch_size = max(target.ne(NO_LABEL).sum(), 1e-8)
 
     _, pred = output.topk(maxk, 1, True, True)
@@ -412,12 +416,13 @@ def accuracy(output, target, topk=(1,)):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
         res.append(correct_k.mul_(100.0 / labeled_minibatch_size))
     return res
 
 
 if __name__ == '__main__':
+    torch.cuda.empty_cache()
     logging.basicConfig(level=logging.INFO)
     args = cli.parse_commandline_args()
     main(RunContext(__file__, 0))

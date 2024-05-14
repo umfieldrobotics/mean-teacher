@@ -35,7 +35,7 @@ class TrainLog:
 
     def save(self):
         df = self._as_dataframe()
-        df.to_msgpack(self.log_file_path, compress='zlib')
+        df.to_pickle(self.log_file_path, compression='infer')
 
     def _record(self, step, col_val_dict):
         with self._log_lock:
