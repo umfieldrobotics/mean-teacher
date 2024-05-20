@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--dataset", "mdrs", "--labels", "bypass", "--arch", "resnext152", "--epochs", "100", "--batch-size", "16", "--labeled-batch-size", "8", "--train-subdir", "train", "--eval-subdir", "test"]
+            "args": ["--dataset", "mdrs", "--labels", "bypass", "--arch", "resnext152", "--epochs", "100", "--batch-size", "32", "--labeled-batch-size", "16", "--train-subdir", "train", "--eval-subdir", "val"]
         }
     ]
 }

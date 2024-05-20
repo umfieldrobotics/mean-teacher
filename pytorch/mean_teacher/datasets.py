@@ -25,7 +25,7 @@ def mdrs():
     ]))
     eval_transformation = transforms.Compose([
         transforms.Resize(256),
-        # transforms.CenterCrop(224),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
         # transforms.Normalize(**channel_stats)
     ])

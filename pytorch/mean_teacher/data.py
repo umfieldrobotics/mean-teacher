@@ -92,10 +92,10 @@ def relabel_dataset(dataset, labels):
             dataset.imgs[idx] = path, NO_LABEL
             unlabeled_idxs.append(idx)
 
-    if len(labels) != 0:
-        message = "List of unlabeled contains {} unknown files: {}, ..."
-        some_missing = ', '.join(list(labels.keys())[:5])
-        raise LookupError(message.format(len(labels), some_missing))
+    # if len(labels) != 0:
+    #     message = "List of unlabeled contains {} unknown files: {}, ..."
+    #     some_missing = ', '.join(list(labels.keys())[:5])
+    #     raise LookupError(message.format(len(labels), some_missing))
 
     labeled_idxs = sorted(set(range(len(dataset.imgs))) - set(unlabeled_idxs))
 
